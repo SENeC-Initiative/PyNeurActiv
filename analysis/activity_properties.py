@@ -1,11 +1,27 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+#
+# This file is part of the PyNeurActiv project, which aims at providing tools
+# to study and model the activity of neuronal cultures.
+# Copyright (C) 2017 SENeC Initiative
+# 
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 """ Tools to compute the properties of the activity """
 
 import numpy as np
 import scipy.sparse as ssp
-import matplotlib.pyplot as plt
 
 
 __all__ = [
@@ -450,6 +466,7 @@ def analyze_raster(raster, limits=None, network=None,
     properties = _compute_properties(data.T, phases, fr, skip_bursts)
     # plot if required
     if show:
+        import matplotlib.pyplot as plt
         if fignums:
             _plot_phases(phases, fignums)
         else:
@@ -673,6 +690,7 @@ def _compute_properties(data, phases, fr, skip_bursts):
 
 
 def _plot_phases(phases, fignums):
+    import matplotlib.pyplot as plt
     colors = ('r', 'orange', 'g', 'b')
     names = ('bursting', 'mixed', 'localized', 'quiescent')
     for fignum in fignums:

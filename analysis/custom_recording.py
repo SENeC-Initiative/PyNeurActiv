@@ -18,16 +18,24 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-"""
-===============
-Analysis module
-===============
+""" Tools to monitor the activity of neurons """
 
-Tools to work on simulated or recorded data.
+import numpy as np
 
-Content
-=======
-"""
+import nngt
+from nngt.geometry import Shape
 
-from .activity_properties import *
-from .array_searching import *
+
+__all__ = ["Recorder"]
+
+
+# --------------- #
+# Recorder class  #
+# --------------- #
+
+class Recorder:
+    
+    '''
+    Intelligent recording device which allows to monitor localized areas.
+    '''
+    pass
