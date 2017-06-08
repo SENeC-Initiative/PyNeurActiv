@@ -23,8 +23,11 @@
 import weakref
 
 import numpy as np
+import scipy.signal as sps
 
 import nest
+
+from .array_searching import find_idx_nearest
 
 
 __all__ = ["Recorder"]
@@ -161,18 +164,35 @@ class Recorder:
         self.recorders = []
         for n in neurons:
             self.recorders.append(
-                _SingleNeuronRecorder(n, record_from, params, network=network)
+                _SingleNeuronRecorder(n, record_from, params, network=network))
 
-    def get_recording(self):
+    def get_recording(self, smooth=False, kernel_size=50, std=30.):
+        '''
+        Return the recorded values.
+
+        Parameters
+        ----------
+        smooth : bool, optional (default: False)
+            Whether the results should be smoothed over time.
+        kernel_size : int, optional (edfault: 50)
+            Number of bins spanned by the Gaussian kernel.
+        std : float, optional (default: 30.)
+            Standard deviation of the Gaussian kernel in ms.
+
+        Returns
+        -------
+        dict of dict of arrays (first key is the ID of the object which is
+        recorded, second the name of the recorded variable).
+        '''
         recordings = {}
         for recorder in self.recorders:
-            recordings.update(recorder.get_recording())
+            recordings.update(recorder.get_recording(smooth, kernel_size, std))
         return recordings
 
 
-# --------------------------------- #
-# Subclass directly mapping neurons #
-# --------------------------------- #
+# ------------------ #
+# Subclass recorders #
+# ------------------ #
 
 class _SingleNeuronRecorder:
 
@@ -202,39 +222,19 @@ class _SingleNeuronRecorder:
              self._gid = (network.nest_gid[neuron],)
         self._recorders = {}
         self._variables = {}
-        if len(record_from) == 1:
-            if record_from[0] == "spikes":
-                self._recorders["spike_detector"] = \
-                    nest.Create("spike_detector", params=params))
-                self._variables["spike_detector"] = ("times",)
-            elif record_from[0] == "V_m" and :
-                self._recorders["voltmeter"] = \
-                    nest.Create("voltmeter", params=params))
-                self._variables["voltmeter"] = ("V_m",)
-            else:
-                mm_params = params.copy()
-                mm_params["record_from"] = record_from
-                self._recorders["multimeter"] = \
-                    nest.Create("multimeter", params=self.params))
-                self._variables["multimeter"] = record_from
-        else:
-            if "spikes" in record_from:
-                self._recorders["spike_detector"] = \
-                    nest.Create("spike_detector", params=params))
-                self._variables["spike_detector"] = ("times",)
-            mm_record = [r for r in record_from if r != "spikes"]
-            mm_params = params.copy()
-            mm_params["record_from"] = mm_record
-            self._variables["multimeter"] = mm_record
-            self._recorders["multimeter"] = \
-                nest.Create("mutlimeter", params=mm_params))
+        _init_recorders(
+            self._recorders, self._variables, record_from, params, False)
 
-    def get_recording(self):
+    def get_recording(self, smooth, kernel_size, std):
         recordings = {}
         for name, gid in self._recorders.items():
             data_to_get = self._variables[name]
             for d in data_to_get:
                 data = nest.GetStatus(gid, "events")[0][d]
+                if name == "spike_detector" and smooth:
+                    data = _smooth_spikes(data, kernel_size, std)
+                elif smooth:
+                    data = _smooth(data, kernel_size, std)
                 recordings[self._id][d] = data
             if name != "spike_detector":
                 data = nest.GetStatus(gid, "events")[0]["times"]
@@ -242,12 +242,12 @@ class _SingleNeuronRecorder:
         return recordings
 
 
-class _AverageRecorder:
+class _AccumulatorRecorder:
 
     def __init__(self, neurons, record_from, params, network=None):
         '''
-        Create a new recorder instance to monitor the average signal over
-        several neurons.
+        Create a new recorder instance to accumulate signal over several
+        neurons.
         
         Parameters
         ----------
@@ -262,50 +262,79 @@ class _AverageRecorder:
         network : :class:`nngt.Network`, optional (default: None)
             Network containing the neuron.
         '''
-        self._id = neuron
+        self._id = neurons
         if network is None:
             self.network = None
-            self._gid = (neuron,)
+            self._gids = neurons
         else:
              self.network = weakref.proxy(network)
-             self._gid = (network.nest_gid[neuron],)
+             self._gids = [network.nest_gid[n] for n in neurons]
         self._recorders = {}
         self._variables = {}
-        if len(record_from) == 1:
-            if record_from[0] == "spikes":
-                self._recorders["spike_detector"] = \
-                    nest.Create("spike_detector", params=params))
-                self._variables["spike_detector"] = ("times",)
-            elif record_from[0] == "V_m" and :
-                self._recorders["voltmeter"] = \
-                    nest.Create("voltmeter", params=params))
-                self._variables["voltmeter"] = ("V_m",)
-            else:
-                mm_params = params.copy()
-                mm_params["record_from"] = record_from
-                self._recorders["multimeter"] = \
-                    nest.Create("multimeter", params=self.params))
-                self._variables["multimeter"] = record_from
-        else:
-            if "spikes" in record_from:
-                self._recorders["spike_detector"] = \
-                    nest.Create("spike_detector", params=params))
-                self._variables["spike_detector"] = ("times",)
-            mm_record = [r for r in record_from if r != "spikes"]
-            mm_params = params.copy()
-            mm_params["record_from"] = mm_record
-            self._variables["multimeter"] = mm_record
-            self._recorders["multimeter"] = \
-                nest.Create("mutlimeter", params=mm_params))
+        _init_recorders(
+            self._recorders, self._variables, record_from, params, True)
 
-    def get_recording(self):
+    def get_recording(self, smooth, kernel_size, std):
         recordings = {}
         for name, gid in self._recorders.items():
             data_to_get = self._variables[name]
             for d in data_to_get:
                 data = nest.GetStatus(gid, "events")[0][d]
+                if name == "spike_detector" and smooth:
+                    data = _smooth_spikes(data, kernel_size, std)
+                elif smooth:
+                    data = _smooth(data, kernel_size, std)
                 recordings[self._id][d] = data
             if name != "spike_detector":
                 data = nest.GetStatus(gid, "events")[0]["times"]
                 recordings[self._id]["times"] = data
         return recordings
+
+
+# ----- #
+# Tools #
+# ----- #
+
+def _init_recorders(recorders, variables, record_from, params, to_accumulator):
+    if len(record_from) == 1:
+        if record_from[0] == "spikes":
+            recorders["spike_detector"] = nest.Create(
+                "spike_detector", params=params)
+            variables["spike_detector"] = ("times",)
+        elif record_from[0] == "V_m":
+            vm_params = params.copy()
+            vm_params["to_accumulator"] = to_accumulator
+            recorders["voltmeter"] = nest.Create("voltmeter", params=params)
+            variables["voltmeter"] = ("V_m",)
+        else:
+            mm_params = params.copy()
+            mm_params["to_accumulator"] = to_accumulator
+            mm_params["record_from"] = record_from
+            recorders["multimeter"] = nest.Create(
+                "multimeter", params=self.params)
+            variables["multimeter"] = record_from
+    else:
+        if "spikes" in record_from:
+            recorders["spike_detector"] = nest.Create(
+                "spike_detector", params=params)
+            variables["spike_detector"] = ("times",)
+        mm_record = [r for r in record_from if r != "spikes"]
+        mm_params = params.copy()
+        mm_params["to_accumulator"] = to_accumulator
+        mm_params["record_from"] = mm_record
+        variables["multimeter"] = mm_record
+        recorders["multimeter"] = nest.Create("multimeter", params=mm_params)
+
+
+def _smooth_spikes(spikes, kernel_size, std):
+    resol = nest.GetKernelStatus("resolution")
+    times = np.arange(0., np.max(spikes), resol)
+    rate = np.zeros(len(times))
+    rate[find_idx_nearest(times, spikes)] += \
+        1. / (std*np.sqrt(np.pi))
+    return _smooth(rate, kernel_size, std)
+
+
+def _smooth(data, kernel_size, std):
+    kernel = sps.gaussian(kernel_size, std)
+    return sps.convolve(data, kernel, mode=same)

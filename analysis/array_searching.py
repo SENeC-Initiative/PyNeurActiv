@@ -44,13 +44,14 @@ def find_idx_nearest(array, values):
         if idx == len(array):
             return idx-1
         else:
-            return idx-(np.abs(values-array[idx-1]) < np.abs(values-array[idx]))
+            idx -= (np.abs(values-array[idx-1]) < np.abs(values-array[idx]))
+            return idx
     else:
         # find where it is idx_max+1
         overflow = (idx == len(array))
         idx[overflow] -= 1
         # for the others, find the nearest
         tmp = idx[~overflow]
-        idx[~overflow] = tmp - ( np.abs(values[~overflow]-array[tmp-1])
-                                 < np.abs(values[~overflow]-array[tmp]) )
+        idx[~overflow] = tmp - (np.abs(values[~overflow] - array[tmp-1])
+                                < np.abs(values[~overflow] - array[tmp]))
         return idx
