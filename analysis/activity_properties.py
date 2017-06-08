@@ -61,7 +61,7 @@ def get_data(recorders):
     return spike_times, senders, time_var, data_var
 
 
-def get_spikes(recorder=None, spike_times=None, senders=None):
+def get_spikes(recorder=None, spike_times=None, senders=None, skip=None):
     '''
     Return a 2D sparse matrix, where:
         - each row i contains the spikes of neuron i
@@ -77,6 +77,9 @@ def get_spikes(recorder=None, spike_times=None, senders=None):
         through their `spike_times` and the associated `senders`.
     senders : array-like, optional (default: None)
         `senders[i]` corresponds to the neuron which fired at `spike_times[i]`.
+    skip : double, optional (default: None)
+        Number of ms that should be skipped (keep only the spikes that occur
+        after this duration).
 
     Example
     -------
@@ -101,6 +104,7 @@ def get_spikes(recorder=None, spike_times=None, senders=None):
     '''
     import nest
     # get spikes
+    skip = 0. if skip is None else skip
     if recorder is not None:
         data = nest.GetStatus(recorder[0])[0]["events"]
         spike_times = data["times"]
@@ -117,11 +121,14 @@ def get_spikes(recorder=None, spike_times=None, senders=None):
     data = [0 for _ in range(len(set(senders)))]
     row_idx = []
     col_idx = []
+    times = []
     for time, neuron in zip(spike_times, senders):
-        row_idx.append(neuron)
-        col_idx.append(data[neuron])
-        data[neuron] += 1
-    return ssp.csr_matrix((spike_times, (row_idx, col_idx)))
+        if time > skip:
+            row_idx.append(neuron)
+            col_idx.append(data[neuron])
+            times.append(time)
+            data[neuron] += 1
+    return ssp.csr_matrix((times, (row_idx, col_idx)))
 
 
 def get_b2(recorder=None, spike_times=None, senders=None):
