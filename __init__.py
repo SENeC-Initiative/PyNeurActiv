@@ -43,6 +43,8 @@ __version__ = "0.1.0"
 # Modules #
 # ------- #
 
+from .analysis import Recorder
+
 from . import analysis
 from . import data_io
 from . import lib
@@ -54,4 +56,5 @@ __all__ = [
     "data_io",
     "lib",
     "models",
+    "Recorder",
 ]

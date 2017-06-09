@@ -71,7 +71,7 @@ class Recorder:
     @classmethod
     def coarse_grained(cls, record_from, spatial_network, square, params=None):
         '''
-        Creates a grid-based recording where the recorders will average the
+        Creates a grid-based recording where the recorders will integrate the
         signal over an area described by `square`.
         
         Parameters
@@ -87,10 +87,40 @@ class Recorder:
         params : dict, optional (default: None)
             Additional arameters for the NEST recorder.
         '''
-        pass
+        from shapely.geometry import Point, Polygon
+        from shapely.affinity import translate
+        cg_recorder = cls(
+            [], record_from, params=params, network=spatial_network)
+        # compute the grid
+        xmin, ymin, xmax, ymax = spatial_network.shape.bounds
+        s_xmin, s_ymin, s_xmax, s_ymax = square.bounds
+        h, w = (ymax - ymin), (xmax - xmin)
+        s_h, s_w = (s_ymax - s_ymin), (s_xmax - s_xmin)
+        lines, cols = int(np.ceil(h / s_h)), int(np.ceil(w / s_w))
+        border_w = w - s_w*(cols - 1)
+        border_h = h - s_h*(lines - 1)
+        centroids = np.zeros((lines, cols, 2))
+        for i in range(lines):
+            centroids[i, :, 0] = np.linspace(
+                xmin + 0.5*border_w, xmax - 0.5*border_w, cols)
+            centroids[i, :, 1] = np.full(ymin + 0.5*border_w + i*s_h, cols)
+        # generate the shape centered around zero
+        xshift, yshift = np.array(square.centroid)
+        xx, yy = p.exterior.xy
+        exterior = [(x - xshift, y - yshift) for x, y in zip(xx, yy)]
+        base_shape = Polygon(exterior)
+        for line in centroids:
+            for pos in line:
+                s = translate(base_shape, pos[0], pos[1])
+                cg_recorder._recorders.append(
+                    cls.localized(record_from, spatial_network, s,
+                                  params=params, average=False,
+                                  rid=tuple(pos)))
+        return cg_recorder
 
     @classmethod
-    def localized(cls, record_from, spatial_network, shape, params=None):
+    def localized(cls, record_from, spatial_network, shape, params=None,
+                  average=False):
         '''
         Creates a grid-based recording where the recorders will average the
         signal over an area described by `square`.
@@ -108,14 +138,23 @@ class Recorder:
         params : dict, optional (default: None)
             Additional arameters for the NEST recorder.
         '''
-        pass
+        from shapely.geometry import Point
+        keep = []
+        for i, pos in enumerate(spatial_network.get_positions()):
+            p = Point(*pos)
+            if shape.contains(p):
+                keep.append(i)
+        if average:
+            return cls.averaged(
+                keep, record_from, params=params, network=spatial_network)
+        else:
+            return cls(
+                keep, record_from, params=params, network=spatial_network)
 
     @classmethod
-    def averaged(cls, neurons, record_from, spatial_network, shape,
-                 params=None):
+    def averaged(cls, neurons, record_from, params=None, network=None):
         '''
-        Creates a grid-based recording where the recorders will average the
-        signal over an area described by `square`.
+        Average the signal over the recorded neurons.
         
         Parameters
         ----------
@@ -127,14 +166,16 @@ class Recorder:
             other state parameter allowed by the NEST neuron model.
         spatial_network : :class:`nngt.SpatialNetwork`
             Network containing the neurons and their positions.
-        shape : :class:`PyNCulture.Shape` object (or in ``nngt.geometry``)
-            Area over which the recording will be averaged. Only the average
-            activity of the neurons in that region is recorded, not the
-            individual behaviours of the neurons.
         params : dict, optional (default: None)
             Additional arameters for the NEST recorder.
         '''
-        pass
+        average_rec = cls([], record_from, params=params, network=network)
+        w = 1. / len(neurons)
+        average_rec._recorders.append(
+            _AccumulatorRecorder(neurons, record_from, params, network=network,
+                                 syn_params={'weight': w}))
+        return average_rec
+        
 
     def __init__(self, neurons, record_from, params=None, network=None):
         '''
@@ -166,7 +207,7 @@ class Recorder:
             self.recorders.append(
                 _SingleNeuronRecorder(n, record_from, params, network=network))
 
-    def get_recording(self, smooth=False, kernel_size=50, std=30.):
+    def get_recording(self, smooth=False, kernel_size=50, std=30., causal=0.):
         '''
         Return the recorded values.
 
@@ -178,6 +219,9 @@ class Recorder:
             Number of bins spanned by the Gaussian kernel.
         std : float, optional (default: 30.)
             Standard deviation of the Gaussian kernel in ms.
+        causal : float, optional (default: 0.)
+            If nonzero, the smoothed signal starts after the original signal
+            since it is caused by it: it is shifted in time by `causal`.
 
         Returns
         -------
@@ -186,7 +230,8 @@ class Recorder:
         '''
         recordings = {}
         for recorder in self.recorders:
-            recordings.update(recorder.get_recording(smooth, kernel_size, std))
+            recordings.update(
+                recorder.get_recording(smooth, kernel_size, std, causal))
         return recordings
 
 
@@ -196,7 +241,8 @@ class Recorder:
 
 class _SingleNeuronRecorder:
 
-    def __init__(self, neuron, record_from, params, network=None):
+    def __init__(self, neuron, record_from, params, network=None,
+                 conn_params=None, syn_params=None):
         '''
         Create a new recorder instance to monitor neurons.
         
@@ -212,6 +258,12 @@ class _SingleNeuronRecorder:
             Additional arameters for the NEST recorder.
         network : :class:`nngt.Network`, optional (default: None)
             Network containing the neuron.
+        conn_params : str or dict, optional
+            Specifies connectivity rule (see the `conn_spec` parameters of the
+            :func:`nest.Connect` function).
+        syn_params : dict, optional (default: None)
+            Additional parameters describing the connection (see the `syn_spec`
+            parameters of the :func:`nest.Connect` function).
         '''
         self._id = neuron
         if network is None:
@@ -224,8 +276,9 @@ class _SingleNeuronRecorder:
         self._variables = {}
         _init_recorders(
             self._recorders, self._variables, record_from, params, False)
+        _connect_recorders(self._recorders, self._gid, conn_params, syn_params)
 
-    def get_recording(self, smooth, kernel_size, std):
+    def get_recording(self, smooth, kernel_size, std, causal):
         recordings = {}
         for name, gid in self._recorders.items():
             data_to_get = self._variables[name]
@@ -238,13 +291,16 @@ class _SingleNeuronRecorder:
                 recordings[self._id][d] = data
             if name != "spike_detector":
                 data = nest.GetStatus(gid, "events")[0]["times"]
+                if smooth and causal:
+                    data += causal
                 recordings[self._id]["times"] = data
         return recordings
 
 
 class _AccumulatorRecorder:
 
-    def __init__(self, neurons, record_from, params, network=None):
+    def __init__(self, neurons, record_from, params, network=None,
+                 syn_params=None, rid=None):
         '''
         Create a new recorder instance to accumulate signal over several
         neurons.
@@ -258,11 +314,15 @@ class _AccumulatorRecorder:
             Variables that should be recorded, among "spikes", "V_m", or any
             other state parameter allowed by the NEST neuron model.
         params : dict
-            Additional arameters for the NEST recorder.
+            Additional parameters for the NEST recorder.
         network : :class:`nngt.Network`, optional (default: None)
             Network containing the neuron.
+        syn_params : dict, optional (default: None)
+            Additional parameters describing the connectivity.
+        rid : tuple, optional (default: None)
+            ID of the recorder. If None, defaults to `neurons`.
         '''
-        self._id = neurons
+        self._id = tuple(neurons)
         if network is None:
             self.network = None
             self._gids = neurons
@@ -273,6 +333,8 @@ class _AccumulatorRecorder:
         self._variables = {}
         _init_recorders(
             self._recorders, self._variables, record_from, params, True)
+        _connect_recorders(
+            self._recorders, self._gids, conn_params, syn_params)
 
     def get_recording(self, smooth, kernel_size, std):
         recordings = {}
@@ -287,6 +349,8 @@ class _AccumulatorRecorder:
                 recordings[self._id][d] = data
             if name != "spike_detector":
                 data = nest.GetStatus(gid, "events")[0]["times"]
+                if smooth and causal:
+                    data += causal
                 recordings[self._id]["times"] = data
         return recordings
 
@@ -324,6 +388,16 @@ def _init_recorders(recorders, variables, record_from, params, to_accumulator):
         mm_params["record_from"] = mm_record
         variables["multimeter"] = mm_record
         recorders["multimeter"] = nest.Create("multimeter", params=mm_params)
+
+
+def _connect_recorders(recorders, neurons, conn_params, syn_params):
+    for name, rec in recorders:
+        if name == "spike_detector":
+            nest.Connect(
+                neurons, rec, conn_spec=conn_params, syn_spec=syn_params)
+        else:
+            nest.Connect(
+                rec, neurons, conn_spec=conn_params, syn_spec=syn_params)
 
 
 def _smooth_spikes(spikes, kernel_size, std):

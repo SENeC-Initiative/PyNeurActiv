@@ -31,3 +31,4 @@ Content
 
 from .activity_properties import *
 from .array_searching import *
+from .custom_recording import Recorder
