@@ -26,8 +26,8 @@ Content
     activity of neuronal populations.
 """
 
-from __future__ import absolute_import
-import sys
+import logging as _logging
+import sys as _sys
 
 
 # ----------------------- #
@@ -35,9 +35,21 @@ import sys
 # ----------------------- #
 
 # Python > 2.6
-assert sys.hexversion > 0x02060000, "PyNeurActiv requires Python > 2.6"
+assert _sys.hexversion > 0x02060000, "PyNeurActiv requires Python > 2.6"
 
 __version__ = "0.1.0"
+
+# logging
+_log = _logging.getLogger(__name__)
+
+if not _log.handlers:
+    logConsoleFormatter = _logging.Formatter(
+        '[%(levelname)s @ %(name)s]: %(message)s')
+    consoleHandler = _logging.StreamHandler()
+    consoleHandler.setFormatter(logConsoleFormatter)
+    consoleHandler.setLevel(_logging.INFO)
+    _log.addHandler(consoleHandler)
+
 
 # ------- #
 # Modules #

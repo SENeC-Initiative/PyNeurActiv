@@ -20,6 +20,8 @@
 
 """ Tools to monitor the activity of neurons """
 
+import sys
+sys.argv.append('--quiet')
 import weakref
 
 import numpy as np
@@ -27,10 +29,22 @@ import scipy.signal as sps
 
 import nest
 
+from .activity_properties import firing_rate
 from .array_searching import find_idx_nearest
 
 
 __all__ = ["Recorder"]
+
+
+# ------------ #
+# NNGT groups  #
+# ------------ #
+
+try:
+    import nngt
+    with_nngt = True
+except:
+    with_nngt = False
 
 
 # --------------- #
@@ -69,10 +83,10 @@ class Recorder:
     '''
 
     @classmethod
-    def coarse_grained(cls, record_from, spatial_network, square, params=None):
+    def coarse_grained(cls, record_from, spatial_network, rect, params=None):
         '''
         Creates a grid-based recording where the recorders will integrate the
-        signal over an area described by `square`.
+        signal over an area described by `rect`.
         
         Parameters
         ----------
@@ -81,19 +95,29 @@ class Recorder:
             other state parameter allowed by the NEST neuron model.
         spatial_network : :class:`nngt.SpatialNetwork`
             Network containing the neurons and their positions.
-        square : :class:`PyNCulture.Shape` object (or in ``nngt.geometry``)
+        rect : tuple, or :class:`PyNCulture.Shape` object (or in
+            ``nngt.geometry``)
             Area that will be used to pave space, and over which the recording
-            will be averaged.
+            will be averaged. A tuple of the form (h, w) can also be passed, in
+            which case the first entry is the height of the rectangle `rect`,
+            and the second is its width.
         params : dict, optional (default: None)
             Additional arameters for the NEST recorder.
         '''
         from shapely.geometry import Point, Polygon
         from shapely.affinity import translate
+        assert spatial_network.nest_gid is not None, \
+            "Use :func:`~nngt.Network.to_nest` on the network beforehand."
         cg_recorder = cls(
             [], record_from, params=params, network=spatial_network)
+        # make the polygon
+        if not isinstance(Polygon, rect):
+            h, w = rect
+            rect = Polygon([(-0.5*w, -0.5*h), (-0.5*w, 0.5*h),
+                            (0.5*w, 0.5*h), (0.5*w, -0.5*h)])
         # compute the grid
         xmin, ymin, xmax, ymax = spatial_network.shape.bounds
-        s_xmin, s_ymin, s_xmax, s_ymax = square.bounds
+        s_xmin, s_ymin, s_xmax, s_ymax = rect.bounds
         h, w = (ymax - ymin), (xmax - xmin)
         s_h, s_w = (s_ymax - s_ymin), (s_xmax - s_xmin)
         lines, cols = int(np.ceil(h / s_h)), int(np.ceil(w / s_w))
@@ -105,17 +129,20 @@ class Recorder:
                 xmin + 0.5*border_w, xmax - 0.5*border_w, cols)
             centroids[i, :, 1] = np.full(ymin + 0.5*border_w + i*s_h, cols)
         # generate the shape centered around zero
-        xshift, yshift = np.array(square.centroid)
+        xshift, yshift = np.array(rect.centroid)
         xx, yy = p.exterior.xy
         exterior = [(x - xshift, y - yshift) for x, y in zip(xx, yy)]
         base_shape = Polygon(exterior)
+        groups = []
         for line in centroids:
             for pos in line:
                 s = translate(base_shape, pos[0], pos[1])
-                cg_recorder._recorders.append(
-                    cls.localized(record_from, spatial_network, s,
+                r = cls.localized(record_from, spatial_network, s,
                                   params=params, average=False,
-                                  rid=tuple(pos)))
+                                  rid=tuple(pos))
+                groups.extend(r.groups)
+                cg_recorder._recorders.append(r)
+        cg_recorder._groups = groups
         return cg_recorder
 
     @classmethod
@@ -123,7 +150,7 @@ class Recorder:
                   average=False):
         '''
         Creates a grid-based recording where the recorders will average the
-        signal over an area described by `square`.
+        signal over an area described by `shape`.
         
         Parameters
         ----------
@@ -139,6 +166,8 @@ class Recorder:
             Additional arameters for the NEST recorder.
         '''
         from shapely.geometry import Point
+        assert spatial_network.nest_gid is not None, \
+            "Use :func:`~nngt.Network.to_nest` on the network beforehand."
         keep = []
         for i, pos in enumerate(spatial_network.get_positions()):
             p = Point(*pos)
@@ -207,7 +236,8 @@ class Recorder:
             self.recorders.append(
                 _SingleNeuronRecorder(n, record_from, params, network=network))
 
-    def get_recording(self, smooth=False, kernel_size=50, std=30., causal=0.):
+    def get_recording(self, smooth=False, kernel_std=30., resolution=None,
+                      cut_gaussian=5., causal=0.):
         '''
         Return the recorded values.
 
@@ -215,10 +245,11 @@ class Recorder:
         ----------
         smooth : bool, optional (default: False)
             Whether the results should be smoothed over time.
-        kernel_size : int, optional (edfault: 50)
-            Number of bins spanned by the Gaussian kernel.
-        std : float, optional (default: 30.)
+        kernel_std : float, optional (default: 30.)
             Standard deviation of the Gaussian kernel in ms.
+        resolution : float, optional (default: `0.1*kernel_std`)
+            The resolution at which the firing rate values will be computed.
+            Choosing a value smaller than `kernel_std` is strongly advised.
         causal : float, optional (default: 0.)
             If nonzero, the smoothed signal starts after the original signal
             since it is caused by it: it is shifted in time by `causal`.
@@ -233,6 +264,16 @@ class Recorder:
             recordings.update(
                 recorder.get_recording(smooth, kernel_size, std, causal))
         return recordings
+
+    def get_groups(self):
+        '''
+        Returns the list :class:`nngt.NeuralGroup` objects containing the
+        neurons associated to a common recorder.
+        '''
+        groups = []
+        for recorder in self.recorders:
+            groups.extend(recorder.get_groups())
+        return groups
 
 
 # ------------------ #
@@ -274,27 +315,30 @@ class _SingleNeuronRecorder:
              self._gid = (network.nest_gid[neuron],)
         self._recorders = {}
         self._variables = {}
+        self._groups = []
+        if with_nngt:
+            g = nngt.core.NeuralGroup([self._id])
+            if network is not None and network.nest_gid is not None:
+                g._nest_gids = [network.nest_gid[neuron]]
+            self._groups.append(g)
         _init_recorders(
             self._recorders, self._variables, record_from, params, False)
         _connect_recorders(self._recorders, self._gid, conn_params, syn_params)
 
-    def get_recording(self, smooth, kernel_size, std, causal):
+    def get_recording(self, smooth, std, resolution, cut, causal=0.):
         recordings = {}
         for name, gid in self._recorders.items():
             data_to_get = self._variables[name]
             for d in data_to_get:
-                data = nest.GetStatus(gid, "events")[0][d]
-                if name == "spike_detector" and smooth:
-                    data = _smooth_spikes(data, kernel_size, std)
-                elif smooth:
-                    data = _smooth(data, kernel_size, std)
-                recordings[self._id][d] = data
-            if name != "spike_detector":
-                data = nest.GetStatus(gid, "events")[0]["times"]
-                if smooth and causal:
-                    data += causal
-                recordings[self._id]["times"] = data
+                _data_to_recording(self._id, gid, d, recordings, smooth, std,
+                                   resolution, cut, causal)
         return recordings
+
+    def get_groups(self):
+        if with_nngt:
+            return self._groups
+        else:
+            raise NotImplementedError("This function requires NNGT.")
 
 
 class _AccumulatorRecorder:
@@ -331,28 +375,30 @@ class _AccumulatorRecorder:
              self._gids = [network.nest_gid[n] for n in neurons]
         self._recorders = {}
         self._variables = {}
+        if with_nngt:
+            g = nngt.core.NeuralGroup(neurons)
+            if network is not None and network.nest_gid is not None:
+                g._nest_gids = network.nest_gid[neurons]
+            self._groups.append(g)
         _init_recorders(
             self._recorders, self._variables, record_from, params, True)
         _connect_recorders(
             self._recorders, self._gids, conn_params, syn_params)
 
-    def get_recording(self, smooth, kernel_size, std):
+    def get_recording(self, smooth, std, resolution, cut, causal=0.):
         recordings = {}
         for name, gid in self._recorders.items():
             data_to_get = self._variables[name]
             for d in data_to_get:
-                data = nest.GetStatus(gid, "events")[0][d]
-                if name == "spike_detector" and smooth:
-                    data = _smooth_spikes(data, kernel_size, std)
-                elif smooth:
-                    data = _smooth(data, kernel_size, std)
-                recordings[self._id][d] = data
-            if name != "spike_detector":
-                data = nest.GetStatus(gid, "events")[0]["times"]
-                if smooth and causal:
-                    data += causal
-                recordings[self._id]["times"] = data
+                data_to_recording(self._id, gid, d, recordings, smooth, std,
+                                  resolution, cut, causal)
         return recordings
+
+    def get_groups(self):
+        if with_nngt:
+            return self._groups
+        else:
+            raise NotImplementedError("This function requires NNGT.")
 
 
 # ----- #
@@ -400,6 +446,35 @@ def _connect_recorders(recorders, neurons, conn_params, syn_params):
                 rec, neurons, conn_spec=conn_params, syn_spec=syn_params)
 
 
+def _data_to_recording(rid, gid, d, rec, smooth, std, resolution, cut, causal):
+    '''
+    Store the data into the recording.
+
+    Parameters
+    ----------
+    rid : recorder id
+    gid : nest gid(s)
+    d : name of the data
+    rec : recordings
+
+    see `get_recording` for the other parameters.
+    '''
+    data = nest.GetStatus(gid, "events")[0][d]
+    times = nest.GetStatus(gid, "events")[0]["times"]
+    if name == "spike_detector" and smooth:
+        data, times = firing_rate(
+            data, kernel_center=causal, kernel_std=std,
+            resolution=resolution, cut_gaussian=cut)
+        recordings[self._id]["times"] = times
+    elif smooth:
+        bin_std = std / float(resolution)
+        kernel_size = 2. * cut_gaussian * bin_std
+        data = _smooth(data, kernel_size, bin_std)
+        if causal:
+            times += causal
+    rec[rid][d] = data
+    rec[rid]["times"] = times
+
 def _smooth_spikes(spikes, kernel_size, std):
     resol = nest.GetKernelStatus("resolution")
     times = np.arange(0., np.max(spikes), resol)
@@ -407,8 +482,3 @@ def _smooth_spikes(spikes, kernel_size, std):
     rate[find_idx_nearest(times, spikes)] += \
         1. / (std*np.sqrt(np.pi))
     return _smooth(rate, kernel_size, std)
-
-
-def _smooth(data, kernel_size, std):
-    kernel = sps.gaussian(kernel_size, std)
-    return sps.convolve(data, kernel, mode=same)

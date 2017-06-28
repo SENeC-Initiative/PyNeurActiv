@@ -11,7 +11,11 @@ This Python package requires:
 - ``numpy`` 
 - ``scipy``
 - ``matplotlib``
+
+Recommended additional packages are:
+
 - [nngt](https://github.com/Silmathoron/NNGT) for some functionalities
+- [pandas](http://pandas.pydata.org/) for raster analysis
 
 
 Open a terminal in the folder of your choice, then type

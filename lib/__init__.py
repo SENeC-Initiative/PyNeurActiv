@@ -32,3 +32,4 @@ Content
 from .aeif import *
 from .dimensions import *
 from .res_names import ResNames
+from .test_functions import nonstring_container

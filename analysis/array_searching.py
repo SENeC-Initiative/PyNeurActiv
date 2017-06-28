@@ -23,11 +23,16 @@
 import numpy as np
 
 
+__all__ = ["find_idx_nearest"]
+
+
 def find_idx_nearest(array, values):
     '''
-    Find the indices of the nearest elements of `values` in `array`.
-    Both ``array`` and ``values`` should be ``numpy.array``s and `array` MUST be
-    sorted in increasing order.
+    Find the indices of the nearest elements of `values` in a sorted `array`.
+
+    .. warning::
+        Both ``array`` and ``values`` should be `numpy.array` objects and
+        `array` MUST be sorted in increasing order.
 
     Parameters
     ----------

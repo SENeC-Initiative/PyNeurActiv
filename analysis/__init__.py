@@ -29,6 +29,21 @@ Content
 =======
 """
 
+from . import activity_properties as _ap
+from . import array_searching as _as
+
 from .activity_properties import *
 from .array_searching import *
-from .custom_recording import Recorder
+
+
+__all__ = _ap.__all__ + _as.__all__
+
+
+try:
+    from .custom_recording import Recorder
+    __all__.append("Recorder")
+except ImportError as e:
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info("Could not load `Recorder` class: " + str(e))
+

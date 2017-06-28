@@ -34,7 +34,7 @@ import matplotlib.pyplot as plt
 import nest
 
 from .. import lib as _plib
-from ..analysis import (activity_types, find_idx_nearest, get_data,
+from ..analysis import (activity_types, find_idx_nearest, data_from_nest,
                         interburst_properties, spiking_properties)
 
 # ------------------ #
@@ -304,7 +304,7 @@ class Simulator_SynchroBurst:
             assert hasattr(self, 'phases'), ("No simulation run, please " +
                                              "enter a value for `simtime`.")
         # get data
-        spike_times, senders, time_var, data_var = get_data(self.recorders)
+        spike_times, senders, time_var, data_var = data_from_nest(self.recorders)
         avg_var = data_var if self.mf else {key: np.average(val, axis=0)
                                             for key, val in data_var.items()}
         # get bursts
@@ -388,7 +388,7 @@ class Simulator_SynchroBurst:
         '''
         if simtime != self.simtime or not self.simulated:
             self.simulate(simtime, mbis=mbis, show=show_raster)
-        (_, _, ts, data_var), avg_var = get_data(self.recorders), {}
+        (_, _, ts, data_var), avg_var = data_from_nest(self.recorders), {}
         for key, val in data_var.items():
             avg_var[key] = (val[0] / self.num_neurons if self.mf
                             else np.average(val, axis=0))
