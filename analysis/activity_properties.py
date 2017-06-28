@@ -456,10 +456,10 @@ def raster_analysis(raster, limits=None, network=None, skip_bursts=0,
 
     for neuron in neurons:
         current_spikes = np.nonzero(activity[sender] == neuron)[0]
-        n = len(isi)
-        isi_positions.append([n, n + len(current_spikes)])
         spike_positions.append(current_spikes)
+        n = len(isi)
         isi.extend(np.diff(activity[time][current_spikes]))
+        isi_positions.append([n, len(isi)])
     isi = np.array(isi)
 
     # binning
@@ -468,7 +468,7 @@ def raster_analysis(raster, limits=None, network=None, skip_bursts=0,
         bins = bayesian_blocks(isi, **kwargs)
     counts, bins = np.histogram(isi, bins)
 
-    import matplotlib.pyplot as plt
+    #~ import matplotlib.pyplot as plt
     #~ plt.figure()
     #~ plt.hist(isi, bins)
     #~ plt.figure()
@@ -512,11 +512,9 @@ def raster_analysis(raster, limits=None, network=None, skip_bursts=0,
         # spikes with ISI < (3*T_min + T_max) / 4 are considered inside a burst
         isi_high = (3*bins[local_max[0]] + bins[local_max[1]]) / 4.
         i = 0
-        plt.figure()
         for isi_pos, spike_pos in zip(isi_positions, spike_positions):
             in_a_burst = isi[isi_pos[0]:isi_pos[1]] < isi_high
             pos_first_spikes_burst = _pos_first_spike_burst(in_a_burst)
-            plt.plot(activity[time][spike_pos][pos_first_spikes_burst], activity[sender][spike_pos][pos_first_spikes_burst], ls='', marker='o', c='r')
             # assign each spike to the burst where it belongs and count the
             # number of spikes inside bursts and inside interbursts
             nsb, nsi = _set_burst_num(pos_first_spikes_burst, in_a_burst,
@@ -531,7 +529,6 @@ def raster_analysis(raster, limits=None, network=None, skip_bursts=0,
         logger.warning("Complex activity detected, manual processing will be "
                        "necessary.")
 
-    plt.plot(activity[time], activity[sender], ls='', marker='o', c='k', alpha=0.2)
     # neuron sorting
     sorter = np.arange(0, np.max(spks_loc['neuron']) + 1, dtype=int)
     if 'burst' in activity:
@@ -1113,14 +1110,24 @@ def _set_burst_num(pos_first_spikes_burst, in_a_burst, spike_pos, burst,
 
         # the first spike for which the interspike registers out is still in
         # the burst, so we add it again
-        #add_first = (len(spks_burst_i)
-        #             and spks_burst_i[-1] - start < len(in_burst_i) - 1)
-        #if add_first:
-        #    in_burst_i[spks_burst_i[-1] + 1 - start] = True
-        #    spks_burst_i = list(spks_burst_i) + [spks_burst_i[-1] + 1]
+        add_first = (len(spks_burst_i) and idx != last_idx
+                     and spks_burst_i[-1] - start < len(in_burst_i) - 1)
+        if add_first:
+            in_burst_i[spks_burst_i[-1] + 1 - start] = True
+            spks_burst_i = list(spks_burst_i) + [spks_burst_i[-1] + 1]
         spks_interburst_i = np.nonzero(~in_burst_i)[0] + start
 
         assert len(in_burst_i) == len(spks_burst_i) + len(spks_interburst_i)
+
+        # for the last region, there is one last spike after the last
+        # interspike: either in_burst[-1] is True and it is in the burst, or
+        # it is False and it is in the interburst
+        if idx == last_idx:
+            if in_burst_i[-1]:
+                spks_burst_i = list(spks_burst_i) + [len(in_burst_i) + start]
+            else:
+                spks_interburst_i = spks_interburst_i.tolist() +\
+                                    [len(in_burst_i) + start]
 
         # set burst indices
         burst[spike_pos[spks_burst_i]] = i + 1
