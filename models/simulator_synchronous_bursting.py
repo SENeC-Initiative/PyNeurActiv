@@ -292,8 +292,8 @@ class Simulator_SynchroBurst:
         else:
             raise RuntimeError("Parameters lead to stable equilibrium.")
         if not self.simulated:
-            self.phases = {"bursting": [], "mixed": [], "quiescent": [],
-                           "localized": []}
+            self.phases = {"network_burst": [], "mixed": [], "quiescent": [],
+                           "local_burst": []}
 
     def compute_properties(self, simtime=None, resimulate=False, mbis=10.,
                            steady_state=0, adim=False):
@@ -308,7 +308,7 @@ class Simulator_SynchroBurst:
         avg_var = data_var if self.mf else {key: np.average(val, axis=0)
                                             for key, val in data_var.items()}
         # get bursts
-        lst_bursts = self.phases["bursting"]
+        lst_bursts = self.phases["network_burst"]
         num_bursts = len(lst_bursts[steady_state:])
         # compute
         if num_bursts:
@@ -316,7 +316,7 @@ class Simulator_SynchroBurst:
             last_burst_end = lst_bursts[-1][-1]
             ends_with_burst = True
             for key, val in self.phases.items():
-                if key != "bursting" and val:
+                if key != "network_burst" and val:
                     ends_with_burst *= (last_burst_end > val[-1][-1])
             if ends_with_burst:
                 lst_bursts.pop()
@@ -393,7 +393,7 @@ class Simulator_SynchroBurst:
             avg_var[key] = (val[0] / self.num_neurons if self.mf
                             else np.average(val, axis=0))
         Vs, ws = avg_var["V_m"], avg_var["w"]
-        lst_bursts = self.phases["bursting"]
+        lst_bursts = self.phases["network_burst"]
         if start_burst is not None:
             if len(lst_bursts) >= start_burst:
                 start_time = (lst_bursts[start_burst][-1]

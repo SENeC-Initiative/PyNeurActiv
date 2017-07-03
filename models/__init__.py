@@ -32,9 +32,14 @@ Content
 """
 
 from .fardet_2017_synchronous_bursting import Fardet2017_SynchroBurst
-from .simulator_synchronous_bursting import Simulator_SynchroBurst
 
 __all__ = [
     "Fardet2017_SynchroBurst",
     "Simulator_SynchroBurst",
 ]
+
+try:
+    from .simulator_synchronous_bursting import Simulator_SynchroBurst
+    __all__.append('Simulator_SynchroBurst')
+except ImportError:
+    pass

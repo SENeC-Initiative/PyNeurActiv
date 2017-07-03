@@ -18,19 +18,14 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-"""
-==========
-Lib module
-==========
+""" Tools for plotting module """
 
-Various tools used in `models` and `analysis` modules.
+from itertools import cycle
 
-Content
-=======
-"""
+from matplotlib.markers import MarkerStyle
 
-from .aeif import *
-from .dimensions import *
-from .res_names import ResNames
-from .test_functions import nonstring_container
-from .signal_processing import find_extrema
+
+# markers list
+
+_markers = cycle(MarkerStyle().filled_markers)
+

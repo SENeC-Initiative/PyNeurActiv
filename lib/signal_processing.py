@@ -42,3 +42,37 @@ def _smooth(data, kernel_size, std, mode='same'):
     kernel = sps.gaussian(kernel_size, std)
     kernel /= np.sum(kernel)
     return sps.convolve(data, kernel, mode=mode)
+
+
+def find_extrema(x, which='max'):
+    '''
+    Return the positions of the extremal values in a 1D-array.
+
+    Note
+    ----
+    In the case of N consecutive equal values that would be local maxima or
+    minima, only the last position is returned.
+    Peaks located at the extremities of `x` are not considered.
+
+    Parameters
+    ----------
+    x : array
+        Array where the extrema will be searched.
+    which : str, optional (default: 'max')
+        Type of extrema that are considered, either 'max' or 'min'.
+    '''
+    lx = len(x)
+    comparator = np.greater_equal if which == 'max' else np.less_equal
+    checker = np.greater if which == 'max' else np.less
+    peaks = sps.argrelextrema(x, comparator=comparator)[0].astype(int)
+    keep = np.ones(len(peaks), dtype=bool)
+    if len(peaks) > 1:
+        keep = np.where(
+            (np.diff(peaks) > 1)
+            & checker(x[peaks[:-1]], x[peaks[:-1] + 1]))[0]
+        add_last = ([peaks[-1]] if (peaks[-1] < lx - 1
+            and checker(x[peaks[-1]], x[min(lx - 1, peaks[-1] - 1)])) else [])
+        return np.array(peaks[keep].tolist() + add_last, dtype=int)
+    elif len(peaks) == 1 and (peaks[0] == 0 or peaks[0] == lx - 1):
+            return []
+    return peaks

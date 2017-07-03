@@ -55,8 +55,6 @@ if not _log.handlers:
 # Modules #
 # ------- #
 
-from .analysis import Recorder
-
 from . import analysis
 from . import data_io
 from . import lib
@@ -70,3 +68,16 @@ __all__ = [
     "models",
     "Recorder",
 ]
+
+try:
+    import matplotlib
+    from . import plot
+    __all__.append('plot')
+except ImportError:
+    pass
+
+try:
+    from .analysis import Recorder
+    __all__.append('Recorder')
+except ImportError:
+    pass

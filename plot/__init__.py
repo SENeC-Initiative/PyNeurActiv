@@ -18,19 +18,22 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-"""
-==========
-Lib module
-==========
+""" 
+Functions for plotting activity.
 
-Various tools used in `models` and `analysis` modules.
 
 Content
 =======
 """
 
-from .aeif import *
-from .dimensions import *
-from .res_names import ResNames
-from .test_functions import nonstring_container
-from .signal_processing import find_extrema
+import warnings as _warn
+_warn.filterwarnings("ignore", module="matplotlib")
+
+# module import
+
+from .raster import raster_plot
+
+
+__all__ = [
+    "raster_plot",
+]
