@@ -1,3 +1,0 @@
-## bootstrap theming ##
-sphinx_bootstrap_theme
-peewee
