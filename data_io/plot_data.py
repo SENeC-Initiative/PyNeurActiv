@@ -4,17 +4,17 @@
 # This file is part of the PyNeurActiv project, which aims at providing tools
 # to study and model the activity of neuronal cultures.
 # Copyright (C) 2017 SENeC Initiative
-# 
+#
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-# 
+#
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-# 
+#
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
@@ -65,13 +65,17 @@ def plot_abf(filename, xunit=None, show=True):
     bl = load_abf(filename)
     plot_neo(bl, xunit=xunit, show=show)
 
+
 def plot_fig1(filename, show=True):
     ''' Plot data from a Matlab .fig file '''
     fig = plt.figure()
-    x, y, prop, labels = load_fig(filename,get_properties=True,get_labels=True)
+    x, y, prop, labels = load_fig(filename, get_properties=True,
+                                  get_labels=True)
+
     plt.plot(x, y, **prop)
     plt.xlabel(labels.get("x", "x"))
     plt.ylabel(labels.get("y", "y"))
+
     if show:
         plt.show()
 
